@@ -120,7 +120,7 @@ def models_to_pydantic(models: dict):
     Returns:
          (dict): A dict with models of SqlAlchemy converted into Pydantic models, and their respective Foreign keys
     """
-    pydantic_models:Dict[str, Dict] = {}
+    pydantic_models: Dict[str, Dict] = {}
 
     for key in models.keys():
         pydantic_models[key] = sqlalchemy_to_pydantic(models[key])
@@ -148,19 +148,17 @@ def get_mocks(model, amount: int):
     return results
 
 
-
-
 class FactoryMaker:
-    """A class that generate a ModelFactory class with specification of how to fill specific data types
-    """
+    """A class that generate a ModelFactory class with specification of how to fill specific data types"""
 
     faker: Faker
     increment: Dict[str, int]
     choices: Dict[str, List[Any]]
     # variables_init: List[str] = [] # this variables will be init inside the factory created
     sql_models: Dict[str, Type]
-    pydantic_models: Dict[str, (Type[BaseModel] | Dict[str, List[str]])]
-    models_ids:Dict[str,List[List[Any]]]
+    pydantic_models: Dict[str, Dict]
+    models_ids: Dict[str, List[List[Any]]]
+    dummy_data: Dict[str, List[Any]] = {}
 
     @classmethod
     def get_faker(cls):
@@ -172,14 +170,16 @@ class FactoryMaker:
         cls.choices[specific] = choices
 
     @classmethod
-    def set_choices(cls, choices: List[Any],*, specific: str = "choice", key: str = ""):
+    def set_choices(
+        cls, choices: List[Any], *, specific: str = "choice", key: str = ""
+    ):
         """Set the choices of a a field type choice
 
         Args:
             choices (List[Any]): The choices
             specific (str): type of the field
             model (str, optional): key of the field id left in blank is set to all field with the specific type. Defaults to "".
-        """    
+        """
         cls.choices[f"{specific}{'_' + key if len(key) >=1 else ''}"] = choices
 
     @classmethod
@@ -195,13 +195,14 @@ class FactoryMaker:
     @classmethod
     def get_provider(cls, specific: str, field: str, model: str):
         faker = cls.faker
-        choices: List[Any] | None = cls.choices.get(field)
+        
+        choices: List[Any] | None = cls.choices.get(f"{specific}{'_' + field if len(field) >=1 else ''}")
 
         def get_next_increment(field: str, model: str):
             value = cls.increment.get(f"{model}_{field}")
             if value is None:
                 value = 1
-            cls.increment[field] = value + 1
+            cls.increment[f"{model}_{field}"] = value + 1
             return value
 
         # TODO Add here more specific types
@@ -218,13 +219,13 @@ class FactoryMaker:
 
     @classmethod
     def create_factory(cls, model):
-        """Create the ModelFactory with the specif types specifications 
+        """Create the ModelFactory with the specif types specifications
 
         Args:
             model (_type_): The model that the Factory will make
 
         Returns:
-            _type_: A ModelFactory specific for the model 
+            _type_: A ModelFactory specific for the model
         """
         name = model.__name__ + "Factory"
         obj = {}
@@ -245,8 +246,41 @@ class FactoryMaker:
         return factory_created
 
     @classmethod
-    def generate_data(cls,models:Dict[str,Any], amount):
-        """ Generate dummy data according to the extended specifications of the SqlAlchemy models
+    def generate_model_data(cls, data, amount):
+        pydantic = data["model"]
+        foreign_keys: Dict[str, List[str]] = data["foreign_keys"]
+        if len(foreign_keys) >= 1:
+            a = 0
+            for key in foreign_keys:
+                key_data = foreign_keys[key]
+                info = key_data[0].split(".")
+                model = info[0]
+                # foreign_key = info[1]
+                if cls.dummy_data[model]:
+                    continue
+                cls.dummy_data[model] = cls.generate_model_data(
+                    cls.pydantic_models[model], amount
+                )
+
+        for key in foreign_keys:
+            # TODO get the keys of the data previously generated
+            # TODO set the specific type
+            key_data = foreign_keys[key]
+            info = key_data[0].split(".")
+            model = info[0]
+            foreign_key = info[1]
+            dummy_keys = []
+            for item in cls.dummy_data[model]:
+                print(item.__getattribute__(foreign_key))
+                dummy_keys.append(item.__getattribute__(foreign_key))
+            cls.set_choices(dummy_keys, key=key)
+        model_factory = cls.create_factory(pydantic)
+        dummy_data = model_factory.batch(amount)
+        return dummy_data
+
+    @classmethod
+    def generate_data(cls, models: Dict[str, Any], amount):
+        """Generate dummy data according to the extended specifications of the SqlAlchemy models
 
         Args:
             models (Dict[str,Any]): A dict with the SqlAlchemy models.
@@ -254,30 +288,7 @@ class FactoryMaker:
             data (Dict[str, List[Any]]) Return a List with Data generated
         """
         data = models_to_pydantic(models)
-        dummy_data:Dict[str,List[Any]] = {}
-        sf = FactoryMaker()
-        for model in data:
-            pydantic = data[model]['model']
-            foreign_keys:Dict[str, List[str]] = data[model]['foreign_keys']
-            if len(foreign_keys) > 1:
-                #TODO create the foreign keys
-                a = 0
-                for key in foreign_keys:
-                    a = a+1
-            for key in foreign_keys:
-                #TODO get the keys of the data previously generated
-                #TODO set the specific type 
-                sf.set_choices([], key=key)
-            model_factory = sf.create_factory(pydantic)
-            dummy_data[model] = model_factory.batch(amount)
-        return dummy_data
-            
-            
-                
-                
-                
-        
-                
-        
-        
-        
+        cls.pydantic_models = data
+        for model in cls.pydantic_models:
+            cls.dummy_data[model] = cls.generate_model_data(data[model], amount)
+        return {"data": cls.dummy_data, "pydantic_models": data}
