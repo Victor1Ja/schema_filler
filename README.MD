@@ -70,9 +70,27 @@ This way
 ```
 
 Soon will be implemented more.
+## Relationships
+In order to generate data with proper external key constrains is needed to define the specific type according to the relationship.
 
+- For one to many relationships is needed to use the specific type 'choices'. With this type the module will only select ids from the given choices.
+``` python
+    'owner':{
+        'type':str,
+        'specific':'choices',
+    }
+```
+- For one to one relationships is needed to use the specific type 'unique_choices'. With this type the module will only select one ids per field  from the given choices.
+``` python
+    'owner':{
+        'type':str,
+        'specific':'unique_choices',
+    }
+```
 
-### **Create the Data**
+## **Create the Data**
+
+### Manual
 
 To create the data first is needed to convert the SqlAlchemy models to Pydantic Models
 ``` Python
@@ -88,4 +106,5 @@ humans = sf.create_factory(models['human']['model'])
 print(humans.batch(3))
 ```
 
-
+### Automatic 
+.....
