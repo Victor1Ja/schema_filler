@@ -6,7 +6,14 @@ from pydantic import BaseConfig, BaseModel, create_model
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.properties import ColumnProperty, RelationshipProperty
 
-specifics_type = ["choice", "incremental_id", "name", "paragraph", "age"]
+specifics_type = [
+    "choice",
+    "unique_choice",
+    "incremental_id",
+    "name",
+    "paragraph",
+    "age",
+]
 
 
 def __create_specific__(field_type: type, specific: str):
@@ -100,10 +107,13 @@ def sqlalchemy_to_pydantic(
                 if column.default is None and not column.nullable:
                     default = ...
                 fields[name] = (python_type, default)
-            if isinstance(attr, RelationshipProperty):
-                print(
-                    "create field of the remote pydantic type"
-                )  # ! this may be complicated
+                continue
+        if isinstance(attr, RelationshipProperty):
+            if attr.uselist == False:
+                print(f"key:{attr.key} table:{attr.argument}")
+            print(
+                "create field of the remote pydantic type"
+            )  # ! this may be complicated
 
     pydantic_model = create_model(
         db_model.__name__, __config__=config, **fields  # type: ignore
@@ -195,21 +205,34 @@ class FactoryMaker:
     @classmethod
     def get_provider(cls, specific: str, field: str, model: str):
         faker = cls.faker
-        
-        choices: List[Any] | None = cls.choices.get(f"{specific}{'_' + field if len(field) >=1 else ''}")
+
+        choices: List[Any] | None = cls.choices.get(
+            f"{specific}{'_' + field if len(field) >=1 else ''}"
+        )
 
         def get_next_increment(field: str, model: str):
-            value = cls.increment.get(f"{model}_{field}")
+            value = cls.increment.get(f"increment_{model}_{field}")
             if value is None:
                 value = 1
-            cls.increment[f"{model}_{field}"] = value + 1
+            cls.increment[f"increment_{model}_{field}"] = value + 1
             return value
+
+        def unique_choice(field: str, model: str, choices: List[Any] | None):
+            value = cls.increment.get(f"unique_{model}_{field}")
+            if value is None:
+                value = 0
+            if not choices or value >= len(choices):
+                print(f"Choices of {field} in {model} are depleted")
+                return "-1"
+
+            cls.increment[f"unique_{model}_{field}"] = value + 1
+            return choices[value]
 
         # TODO Add here more specific types
         switcher = {
             "choice": lambda: choice(choices) if choices is not None else None,
-            # "unique_choice":   unique_choice,
-            "incremental_id": lambda: get_next_increment(field, model),  #!not working
+            "unique_choice": lambda: unique_choice(field, model, choices),
+            "incremental_id": lambda: get_next_increment(field, model),
             "name": faker.name,
             "paragraph": faker.paragraph,
             "age": lambda: randint(1, 99),
@@ -261,21 +284,26 @@ class FactoryMaker:
                 cls.dummy_data[model] = cls.generate_model_data(
                     cls.pydantic_models[model], amount
                 )
-
+        choices_size: int = 2**30 // 1
         for key in foreign_keys:
             # TODO get the keys of the data previously generated
             # TODO set the specific type
             key_data = foreign_keys[key]
+
             info = key_data[0].split(".")
             model = info[0]
             foreign_key = info[1]
             dummy_keys = []
             for item in cls.dummy_data[model]:
-                print(item.__getattribute__(foreign_key))
+                # print(item.__getattribute__(foreign_key))
                 dummy_keys.append(item.__getattribute__(foreign_key))
-            cls.set_choices(dummy_keys, key=key)
+            field_specific = pydantic.__fields__.get(key).type_.specific
+            if field_specific == "unique_choice":
+                choices_size = min(choices_size, len(dummy_keys))
+
+            cls.set_choices(dummy_keys, key=key, specific=field_specific)
         model_factory = cls.create_factory(pydantic)
-        dummy_data = model_factory.batch(amount)
+        dummy_data = model_factory.batch(min(amount, choices_size))
         return dummy_data
 
     @classmethod
