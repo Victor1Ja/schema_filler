@@ -1,10 +1,11 @@
 from pydantic_factories import ModelFactory
 from faker import Faker
 from random import choice, randint
-from typing import List, Any, Dict, Container, Optional, Type, Literal
+from typing import List, Any, Dict, Container, Optional, Type
 from pydantic import BaseConfig, BaseModel, create_model
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.properties import ColumnProperty, RelationshipProperty
+import logging
 
 specifics_type = [
     "choice",
@@ -51,6 +52,7 @@ def __create_specific__(field_type: type, specific: str):
             "__get_validators__": __get_validators__,
         },
     )
+    logging.info(f"An {field_type} with specific type:{specific} has created")
     return specific_type
 
 
@@ -110,14 +112,17 @@ def sqlalchemy_to_pydantic(
                 continue
         if isinstance(attr, RelationshipProperty):
             if attr.uselist == False:
-                print(f"key:{attr.key} table:{attr.argument}")
-            print(
-                "create field of the remote pydantic type"
-            )  # ! this may be complicated
+                logging.debug(f"key:{attr.key} table:{attr.argument}")
+                logging.debug("create field of the remote pydantic type")
+                # print(f"key:{attr.key} table:{attr.argument}")
+            # print(
+            #     "create field of the remote pydantic type"
+            # )  # ! this may be complicated
 
     pydantic_model = create_model(
         db_model.__name__, __config__=config, **fields  # type: ignore
     )
+    logging.info(f"The pydantic model of {db_model.__name__} was created")
     return {"model": pydantic_model, "foreign_keys": foreign_keys}
 
 
@@ -134,7 +139,7 @@ def models_to_pydantic(models: dict):
 
     for key in models.keys():
         pydantic_models[key] = sqlalchemy_to_pydantic(models[key])
-
+    logging.info("All models were created")
     return pydantic_models
 
 
@@ -222,7 +227,8 @@ class FactoryMaker:
             if value is None:
                 value = 0
             if not choices or value >= len(choices):
-                print(f"Choices of {field} in {model} are depleted")
+                # print(f"Choices of {field} in {model} are depleted")
+                logging.warning(f"Choices of {field} in {model} are depleted")
                 return "-1"
 
             cls.increment[f"unique_{model}_{field}"] = value + 1
@@ -266,6 +272,7 @@ class FactoryMaker:
         obj["__model__"] = model
         # print(obj, name)
         factory_created = type(name, (ModelFactory,), obj)
+        logging.info("Factory created")
         return factory_created
 
     @classmethod
@@ -319,4 +326,6 @@ class FactoryMaker:
         cls.pydantic_models = data
         for model in cls.pydantic_models:
             cls.dummy_data[model] = cls.generate_model_data(data[model], amount)
+        logging.info("Dummy data were created")
+        
         return {"data": cls.dummy_data, "pydantic_models": data}
